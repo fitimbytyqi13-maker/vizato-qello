@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="sq">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vizato & Qëllo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ========== LOBBY SCREEN ========== -->
+  <div id="lobby-screen" class="screen active">
+    <div class="lobby-container">
+      <h1 class="game-title">🎨 Vizato & Qëllo</h1>
+      <p class="game-subtitle">Vizato, qëllo dhe fito!</p>
+
+      <div class="lobby-form">
+        <input
+          type="text"
+          id="player-name"
+          placeholder="Emri yt..."
+          maxlength="20"
+          autocomplete="off"
+        >
+
+        <div class="lobby-buttons">
+          <button id="btn-create" class="btn btn-primary">Krijo Dhomë</button>
+          <div class="join-row">
+            <input
+              type="text"
+              id="room-code-input"
+              placeholder="Kodi..."
+              maxlength="6"
+              autocomplete="off"
+            >
+            <button id="btn-join" class="btn btn-secondary">Kyçu</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== WAITING ROOM SCREEN ========== -->
+  <div id="waiting-screen" class="screen">
+    <div class="waiting-container">
+      <h2>Dhoma: <span id="room-code-display"></span></h2>
+      <p class="waiting-info">Ndaje kodin me miqtë!</p>
+
+      <div id="waiting-players" class="player-list"></div>
+
+      <!-- Settings Panel (host only) -->
+      <div id="settings-panel" class="settings-panel">
+        <h3 class="settings-title">⚙️ Opsionet e Lojës</h3>
+
+        <div class="settings-row">
+          <label for="setting-rounds">Raunde:</label>
+          <select id="setting-rounds">
+            <option value="2">2</option>
+            <option value="3" selected>3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+          </select>
+        </div>
+
+        <div class="settings-row">
+          <label for="setting-time">Koha (sekonda):</label>
+          <select id="setting-time">
+            <option value="30">30</option>
+            <option value="45">45</option>
+            <option value="60" selected>60</option>
+            <option value="90">90</option>
+            <option value="120">120</option>
+          </select>
+        </div>
+
+        <div class="settings-row">
+          <label for="setting-players">Max lojtarë:</label>
+          <select id="setting-players">
+            <option value="4">4</option>
+            <option value="6">6</option>
+            <option value="8" selected>8</option>
+            <option value="10">10</option>
+            <option value="12">12</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="btn-start" class="btn btn-primary btn-large">
+        Fillo Lojën
+      </button>
+      <p id="waiting-status" class="waiting-status">Duke pritur lojtarë...</p>
+    </div>
+  </div>
+
+  <!-- ========== GAME SCREEN ========== -->
+  <div id="game-screen" class="screen">
+    <div class="game-layout">
+
+      <!-- LEFT: Players -->
+      <div class="game-sidebar left-sidebar">
+        <div class="game-info">
+          <span id="game-round" class="info-badge">Raundi: 1</span>
+          <span id="game-timer" class="info-badge timer-badge">60s</span>
+        </div>
+        <div id="game-players" class="player-list"></div>
+      </div>
+
+      <!-- CENTER: Canvas -->
+      <div class="game-center">
+        <div id="word-display" class="word-display"></div>
+
+        <div class="canvas-wrapper">
+          <canvas id="game-canvas" width="800" height="600"></canvas>
+        </div>
+
+        <!-- Drawing Tools -->
+        <div id="draw-tools" class="draw-tools">
+
+          <!-- Row 1: Tool buttons -->
+          <div class="tool-group">
+            <button class="tool-btn active" data-tool="pen" title="Laps">✏️</button>
+            <button class="tool-btn" data-tool="eraser" title="Fshires">🧹</button>
+            <button id="btn-undo" class="tool-btn" title="Zhbej">↩️</button>
+            <button id="btn-clear-canvas" class="tool-btn danger" title="Pastro">🗑️</button>
+          </div>
+
+          <!-- Row 2: Brush sizes -->
+          <div class="tool-group">
+            <button class="size-btn active" data-size="3" title="Shume i vogel"><span style="width:3px;height:3px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+            <button class="size-btn" data-size="6" title="Vogel"><span style="width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+            <button class="size-btn" data-size="12" title="Mesem"><span style="width:12px;height:12px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+            <button class="size-btn" data-size="20" title="Madh"><span style="width:16px;height:16px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+            <button class="size-btn" data-size="32" title="Shume madh"><span style="width:20px;height:20px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+          </div>
+
+          <!-- Row 3: Color palette -->
+          <div class="tool-group">
+            <div id="color-palette" class="color-palette"></div>
+            <input type="color" id="color-picker" value="#111827" title="Zgjedh ngjyre">
+          </div>
+
+        </div>
+      </div>
+
+      <!-- RIGHT: Chat -->
+      <div class="game-sidebar right-sidebar">
+        <div class="chat-box">
+          <div id="chat-messages" class="chat-messages"></div>
+          <div class="chat-input-row">
+            <input
+              type="text"
+              id="chat-input"
+              placeholder="Shkruaj përgjigjen..."
+              maxlength="100"
+              autocomplete="off"
+            >
+            <button id="btn-send" class="btn btn-primary btn-small">Dërgo</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========== GAME OVER OVERLAY ========== -->
+  <div id="gameover-overlay" class="overlay hidden">
+    <div class="overlay-content">
+      <h2>🏆 Loja Përfundoi!</h2>
+      <div id="rankings-list" class="rankings-list"></div>
+      <button id="btn-play-again" class="btn btn-primary btn-large">Luaj Përsëri</button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>
