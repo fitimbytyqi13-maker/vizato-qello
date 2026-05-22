@@ -19,11 +19,9 @@ const waitingPlayers = document.getElementById('waiting-players');
 const btnStart = document.getElementById('btn-start');
 const waitingStatus = document.getElementById('waiting-status');
 
-// Settings elements
-const settingsPanel = document.getElementById('settings-panel');
+// Settings elements (number inputs on lobby create card)
 const settingRounds = document.getElementById('setting-rounds');
 const settingTime = document.getElementById('setting-time');
-const settingPlayers = document.getElementById('setting-players');
 
 // Game elements
 const gameRound = document.getElementById('game-round');
@@ -125,15 +123,16 @@ btnCreate.addEventListener('click', () => {
     alert('Shkruaj emrin tënd!');
     return;
   }
-  socket.emit('create-room', { name });
+  socket.emit('create-room', { name, settings: getSettings() });
 });
 
-// Helper: read current settings from the panel
+// Helper: read settings from lobby number inputs
 function getSettings() {
+  const rounds = parseInt(settingRounds?.value) || 3;
+  const time = parseInt(settingTime?.value) || 60;
   return {
-    rounds: parseInt(settingRounds.value) || 3,
-    time: parseInt(settingTime.value) || 60,
-    maxPlayers: parseInt(settingPlayers.value) || 8
+    rounds: Math.min(Math.max(rounds, 1), 10),
+    time: Math.min(Math.max(time, 15), 180)
   };
 }
 
@@ -169,7 +168,6 @@ socket.on('room-created', (data) => {
   roomCodeDisplay.textContent = data.code;
   renderPlayers(waitingPlayers, data.players);
   btnStart.style.display = '';
-  settingsPanel.style.display = '';
   showScreen(waitingScreen);
 });
 
@@ -179,7 +177,6 @@ socket.on('room-joined', (data) => {
   roomCodeDisplay.textContent = data.code;
   renderPlayers(waitingPlayers, data.players);
   btnStart.style.display = 'none';
-  settingsPanel.style.display = 'none'; // only host sees settings
   showScreen(waitingScreen);
 });
 

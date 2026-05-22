@@ -5,37 +5,55 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vizato & Qëllo</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="lobby.css">
 </head>
 <body>
 
   <!-- ========== LOBBY SCREEN ========== -->
   <div id="lobby-screen" class="screen active">
-    <div class="lobby-container">
-      <h1 class="game-title">🎨 Vizato & Qëllo</h1>
-      <p class="game-subtitle">Vizato, qëllo dhe fito!</p>
+    <div class="lobby-wrapper">
 
-      <div class="lobby-form">
-        <input
-          type="text"
-          id="player-name"
-          placeholder="Emri yt..."
-          maxlength="20"
-          autocomplete="off"
-        >
+      <!-- Title -->
+      <div class="lobby-header">
+        <h1 class="game-title">🎨 Vizato & Qëllo</h1>
+        <p class="game-subtitle">Vizato, qëllo dhe fito!</p>
+      </div>
 
-        <div class="lobby-buttons">
-          <button id="btn-create" class="btn btn-primary">Krijo Dhomë</button>
-          <div class="join-row">
-            <input
-              type="text"
-              id="room-code-input"
-              placeholder="Kodi..."
-              maxlength="6"
-              autocomplete="off"
-            >
-            <button id="btn-join" class="btn btn-secondary">Kyçu</button>
+      <!-- Name input (shared) -->
+      <div class="lobby-name-row">
+        <input type="text" id="player-name" placeholder="Shkruaj emrin tënd..." maxlength="20" autocomplete="off">
+      </div>
+
+      <!-- Two cards side by side -->
+      <div class="lobby-cards">
+
+        <!-- Card 1: Create Room -->
+        <div class="lobby-card">
+          <div class="lobby-card-icon">🏠</div>
+          <h2 class="lobby-card-title">Krijo Dhomë</h2>
+          <p class="lobby-card-desc">Krijo një dhomë të re dhe ftoni miqtë</p>
+          <div class="settings-row">
+            <div class="setting-item">
+              <label for="setting-rounds">Raunde</label>
+              <input type="number" id="setting-rounds" value="3" min="1" max="10" step="1">
+            </div>
+            <div class="setting-item">
+              <label for="setting-time">Sekonda</label>
+              <input type="number" id="setting-time" value="60" min="15" max="180" step="5">
+            </div>
           </div>
+          <button id="btn-create" class="btn btn-primary">Krijo Dhomë</button>
         </div>
+
+        <!-- Card 2: Join Room -->
+        <div class="lobby-card">
+          <div class="lobby-card-icon">🔑</div>
+          <h2 class="lobby-card-title">Hyr në Dhomë</h2>
+          <p class="lobby-card-desc">Vendos kodin e dhomës për t'u kyçur</p>
+          <input type="text" id="room-code-input" placeholder="Kodi i dhomës..." maxlength="6" autocomplete="off">
+          <button id="btn-join" class="btn btn-secondary">Kyçu</button>
+        </div>
+
       </div>
     </div>
   </div>
@@ -45,50 +63,8 @@
     <div class="waiting-container">
       <h2>Dhoma: <span id="room-code-display"></span></h2>
       <p class="waiting-info">Ndaje kodin me miqtë!</p>
-
       <div id="waiting-players" class="player-list"></div>
-
-      <!-- Settings Panel (host only) -->
-      <div id="settings-panel" class="settings-panel">
-        <h3 class="settings-title">⚙️ Opsionet e Lojës</h3>
-
-        <div class="settings-row">
-          <label for="setting-rounds">Raunde:</label>
-          <select id="setting-rounds">
-            <option value="2">2</option>
-            <option value="3" selected>3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-          </select>
-        </div>
-
-        <div class="settings-row">
-          <label for="setting-time">Koha (sekonda):</label>
-          <select id="setting-time">
-            <option value="30">30</option>
-            <option value="45">45</option>
-            <option value="60" selected>60</option>
-            <option value="90">90</option>
-            <option value="120">120</option>
-          </select>
-        </div>
-
-        <div class="settings-row">
-          <label for="setting-players">Max lojtarë:</label>
-          <select id="setting-players">
-            <option value="4">4</option>
-            <option value="6">6</option>
-            <option value="8" selected>8</option>
-            <option value="10">10</option>
-            <option value="12">12</option>
-          </select>
-        </div>
-      </div>
-
-      <button id="btn-start" class="btn btn-primary btn-large">
-        Fillo Lojën
-      </button>
+      <button id="btn-start" class="btn btn-primary btn-large">Fillo Lojën</button>
       <p id="waiting-status" class="waiting-status">Duke pritur lojtarë...</p>
     </div>
   </div>
@@ -109,37 +85,29 @@
       <!-- CENTER: Canvas -->
       <div class="game-center">
         <div id="word-display" class="word-display"></div>
-
         <div class="canvas-wrapper">
           <canvas id="game-canvas" width="800" height="600"></canvas>
         </div>
 
         <!-- Drawing Tools -->
         <div id="draw-tools" class="draw-tools">
-
-          <!-- Row 1: Tool buttons -->
           <div class="tool-group">
             <button class="tool-btn active" data-tool="pen" title="Laps">✏️</button>
             <button class="tool-btn" data-tool="eraser" title="Fshires">🧹</button>
             <button id="btn-undo" class="tool-btn" title="Zhbej">↩️</button>
             <button id="btn-clear-canvas" class="tool-btn danger" title="Pastro">🗑️</button>
           </div>
-
-          <!-- Row 2: Brush sizes -->
           <div class="tool-group">
-            <button class="size-btn active" data-size="3" title="Shume i vogel"><span style="width:3px;height:3px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
-            <button class="size-btn" data-size="6" title="Vogel"><span style="width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
-            <button class="size-btn" data-size="12" title="Mesem"><span style="width:12px;height:12px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
-            <button class="size-btn" data-size="20" title="Madh"><span style="width:16px;height:16px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
-            <button class="size-btn" data-size="32" title="Shume madh"><span style="width:20px;height:20px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+            <button class="size-btn active" data-size="3"><span style="width:3px;height:3px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+            <button class="size-btn" data-size="6"><span style="width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+            <button class="size-btn" data-size="12"><span style="width:12px;height:12px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+            <button class="size-btn" data-size="20"><span style="width:16px;height:16px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
+            <button class="size-btn" data-size="32"><span style="width:20px;height:20px;border-radius:50%;background:currentColor;display:inline-block"></span></button>
           </div>
-
-          <!-- Row 3: Color palette -->
           <div class="tool-group">
             <div id="color-palette" class="color-palette"></div>
             <input type="color" id="color-picker" value="#111827" title="Zgjedh ngjyre">
           </div>
-
         </div>
       </div>
 
@@ -148,13 +116,7 @@
         <div class="chat-box">
           <div id="chat-messages" class="chat-messages"></div>
           <div class="chat-input-row">
-            <input
-              type="text"
-              id="chat-input"
-              placeholder="Shkruaj përgjigjen..."
-              maxlength="100"
-              autocomplete="off"
-            >
+            <input type="text" id="chat-input" placeholder="Shkruaj përgjigjen..." maxlength="100" autocomplete="off">
             <button id="btn-send" class="btn btn-primary btn-small">Dërgo</button>
           </div>
         </div>
@@ -172,9 +134,7 @@
     </div>
   </div>
 
-  <!-- Scripts -->
   <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
-
 </body>
 </html>
