@@ -16,8 +16,10 @@ app.use(express.static('public'));
 const ROUND_TIME = 60;        // seconds per turn
 const MAX_ROUNDS = 3;         // rounds per game
 const MAX_PLAYERS = 8;        // max players per room
-const POINTS_CORRECT = 100;   // points for guessing correctly
-const POINTS_DRAWER = 50;     // points for drawer when someone guesses
+const POINTS_CORRECT = 100;   // points for guessing correctly (max, time-scaled)
+const POINTS_DRAWER = 50;     // base points for drawer when someone guesses (more with time bonus)
+const POINTS_DRAWER_BASE = 25; // base points for drawer just for completing their turn
+const HINT_DELAY = 10;        // seconds before first hint
 
 // ========== WORD LIST (Albanian) ==========
 const words = [
@@ -90,6 +92,11 @@ function clearRoomTimer(room) {
     clearInterval(room.timer);
     room.timer = null;
   }
+  if (room.hintTimer) {
+    clearTimeout(room.hintTimer);
+    clearInterval(room.hintTimer);
+    room.hintTimer = null;
+  }
 }
 
 // ========== GAME LOGIC ==========
@@ -102,9 +109,59 @@ function startTurn(roomCode) {
   clearRoomTimer(room);
 
   // Pick word and reset turn state
-  room.currentWord = getRandomWord();
+  let wordPool = [...words];
+  if (room.customWords && room.customWords.length > 0) {
+    wordPool = wordPool.concat(room.customWords);
+  }
+  room.currentWord = wordPool[Math.floor(Math.random() * wordPool.length)];
   room.guessedPlayers = [];
+  room.hintRevealed = [];
+  room._drawerEarnedThisTurn = 0;
   room.timeLeft = room.settings ? room.settings.time : ROUND_TIME;
+
+  // Schedule progressive hint reveals (1 letter at a time)
+  clearTimeout(room.hintTimer);
+  clearInterval(room.hintTimer);
+
+  const wordLen = room.currentWord.length;
+  const lettersToReveal = Math.floor(wordLen / 2) + 1; // more than half
+  const hintInterval = 4; // seconds between each hint reveal
+
+  room.hintTimer = setTimeout(() => {
+    if (!rooms[roomCode] || !rooms[roomCode].gameStarted) return;
+
+    let revealed = 0;
+    room.hintTimer = setInterval(() => {
+      const r = rooms[roomCode];
+      if (!r || !r.gameStarted) {
+        clearInterval(room.hintTimer);
+        room.hintTimer = null;
+        return;
+      }
+
+      const word = r.currentWord;
+      const available = word.split('').map((_, i) => i)
+        .filter(i => !r.hintRevealed.includes(i));
+
+      if (available.length === 0 || revealed >= lettersToReveal) {
+        clearInterval(r.hintTimer);
+        r.hintTimer = null;
+        return;
+      }
+
+      const idx = available[Math.floor(Math.random() * available.length)];
+      r.hintRevealed.push(idx);
+      revealed++;
+
+      io.to(roomCode).emit('hint', {
+        letters: [{ position: idx, letter: word[idx] }]
+      });
+      io.to(roomCode).emit('chat-message', {
+        type: 'system',
+        text: `Hint: shkronja "${word[idx]}" u zbulua! (${r.hintRevealed.length}/${wordLen})`
+      });
+    }, hintInterval * 1000);
+  }, HINT_DELAY * 1000);
 
   const drawer = getCurrentDrawer(room);
   if (!drawer) return;
@@ -169,6 +226,28 @@ function endTurn(roomCode, allGuessed) {
   io.to(roomCode).emit('chat-message', {
     type: 'system',
     text: reason
+  });
+
+  // Send round summary
+  const endDrawer = getCurrentDrawer(room);
+  const endDrawerName = endDrawer ? endDrawer.name : '';
+  const guessedNames = room.guessedPlayers.map(id => {
+    const p = getPlayer(room, id);
+    return p ? p.name : '';
+  }).filter(Boolean);
+  let drawerGain = room._drawerEarnedThisTurn || 0;
+
+  // Award base points to drawer for completing their turn, even if nobody guessed
+  if (drawerGain === 0 && endDrawer) {
+    endDrawer.score += POINTS_DRAWER_BASE;
+    drawerGain = POINTS_DRAWER_BASE;
+  }
+
+  io.to(roomCode).emit('round-summary', {
+    word: room.currentWord,
+    drawer: endDrawerName,
+    drawerGain: drawerGain,
+    guessers: guessedNames
   });
 
   // Move to next drawer
@@ -254,10 +333,13 @@ io.on('connection', (socket) => {
         score: 0
       }],
       gameStarted: false,
+      customWords: [],
       currentWord: null,
       currentRound: 1,
       drawerIndex: 0,
       guessedPlayers: [],
+      hintRevealed: [],
+      hintTimer: null,
       timeLeft: roomTime,
       timer: null
     };
@@ -323,8 +405,84 @@ io.on('connection', (socket) => {
     console.log(`${name} u kyç në dhomën ${code}`);
   });
 
+  // --- SET CUSTOM WORDS (host only, before game) ---
+  socket.on('set-custom-words', (data) => {
+    const room = getRoomByPlayer(socket.id);
+    if (!room) return;
+    if (room.host !== socket.id) {
+      socket.emit('error-message', 'Vetem hosti mund te vendose fjale te personalizuara.');
+      return;
+    }
+    if (room.gameStarted) return;
+
+    const list = (data.words || '')
+      .split(',')
+      .map(w => w.trim().toLowerCase().replace(/[^a-zëç]/g, ''))
+      .filter(w => w.length >= 2 && w.length <= 20);
+
+    room.customWords = list;
+
+    io.to(room.code).emit('chat-message', {
+      type: 'system',
+      text: list.length > 0
+        ? `${list.length} fjale te personalizuara u shtuan.`
+        : 'Fjalet e personalizuara u hoqen.'
+    });
+  });
+
+  // --- KICK PLAYER (host only) ---
+  socket.on('kick-player', (data) => {
+    const room = getRoomByPlayer(socket.id);
+    if (!room) return;
+    if (room.host !== socket.id) {
+      socket.emit('error-message', 'Vetem hosti mund te perjashtoje lojtare.');
+      return;
+    }
+    const targetId = data.playerId;
+    if (targetId === socket.id) {
+      socket.emit('error-message', 'Nuk mund ta perjashtosh veten.');
+      return;
+    }
+    const target = getPlayer(room, targetId);
+    if (!target) return;
+    const targetName = target.name;
+
+    room.players = room.players.filter(p => p.id !== targetId);
+
+    if (room.gameStarted) {
+      if (room.drawerIndex >= room.players.length) room.drawerIndex = 0;
+      if (room.players.length < 2) {
+        clearRoomTimer(room);
+        room.gameStarted = false;
+        io.to(room.code).emit('game-over', {
+          rankings: room.players.map((p, i) => ({
+            rank: i + 1,
+            name: p.name,
+            score: p.score
+          }))
+        });
+        room.players.forEach(p => { p.score = 0; });
+        room.currentRound = 1;
+        room.drawerIndex = 0;
+      }
+    }
+
+    io.to(targetId).emit('kicked');
+    const targetSocket = io.sockets.sockets.get(targetId);
+    if (targetSocket) targetSocket.leave(room.code);
+
+    io.to(room.code).emit('chat-message', {
+      type: 'system',
+      text: `${targetName} u perjashtua nga dhoma.`
+    });
+    io.to(room.code).emit('player-joined', {
+      name: '',
+      players: getPlayerList(room)
+    });
+  });
+
   // --- START GAME ---
-  socket.on('start-game', (data) => {
+  socket.on('start-game', () => {
     const room = getRoomByPlayer(socket.id);
     if (!room) return;
 
@@ -338,16 +496,6 @@ io.on('connection', (socket) => {
     }
     if (room.gameStarted) return;
 
-    // Apply settings from host if provided
-    if (data && data.settings) {
-      const s = data.settings;
-      room.settings = {
-        rounds:     Math.min(Math.max(parseInt(s.rounds) || MAX_ROUNDS, 1), 10),
-        time:       Math.min(Math.max(parseInt(s.time) || ROUND_TIME, 15), 180),
-        maxPlayers: Math.min(Math.max(parseInt(s.maxPlayers) || MAX_PLAYERS, 2), 16)
-      };
-    }
-
     room.gameStarted = true;
     room.currentRound = 1;
     room.drawerIndex = 0;
@@ -360,7 +508,7 @@ io.on('connection', (socket) => {
 
     io.to(room.code).emit('chat-message', {
       type: 'system',
-      text: 'Loja filloi! Raundi 1 — Koha: ' + (room.settings ? room.settings.time : ROUND_TIME) + 's'
+      text: 'Loja filloi! Raundi 1'
     });
 
     startTurn(room.code);
@@ -376,6 +524,15 @@ io.on('connection', (socket) => {
 
     // Broadcast drawing data to everyone except drawer
     socket.to(room.code).emit('draw', data);
+  });
+
+  // --- FILL (bucket tool by drawer) ---
+  socket.on('fill', (data) => {
+    const room = getRoomByPlayer(socket.id);
+    if (!room || !room.gameStarted) return;
+    const drawer = getCurrentDrawer(room);
+    if (!drawer || drawer.id !== socket.id) return;
+    socket.to(room.code).emit('fill', { x: data.x, y: data.y, color: data.color });
   });
 
   // --- CLEAR CANVAS (by drawer) ---
@@ -412,16 +569,24 @@ io.on('connection', (socket) => {
       room.guessedPlayers.push(socket.id);
 
       // Calculate points based on time left
-      const timeBonus = Math.floor(room.timeLeft / (room.settings ? room.settings.time : ROUND_TIME) * POINTS_CORRECT);
-      player.score += Math.max(timeBonus, 10);
+      const totalTime = room.settings ? room.settings.time : ROUND_TIME;
+      const timeFraction = room.timeLeft / totalTime;
+      const guesserPoints = Math.max(Math.floor(timeFraction * POINTS_CORRECT), 10);
+      player.score += guesserPoints;
 
-      // Give drawer points too
+      // Give drawer points (time-based bonus too)
+      const drawerTimeBonus = Math.floor(timeFraction * POINTS_DRAWER);
+      const drawerEarned = POINTS_DRAWER + drawerTimeBonus;
       if (drawer) {
-        drawer.score += POINTS_DRAWER;
+        drawer.score += drawerEarned;
+        room._drawerEarnedThisTurn = (room._drawerEarnedThisTurn || 0) + drawerEarned;
       }
 
       io.to(room.code).emit('correct-guess', {
         name: player.name,
+        points: guesserPoints,
+        drawerName: drawer ? drawer.name : '',
+        drawerPoints: drawerEarned,
         players: getPlayerList(room)
       });
 
@@ -437,6 +602,7 @@ io.on('connection', (socket) => {
       }
     } else {
       // Wrong guess — show as normal chat
+      socket.emit('wrong-guess');
       io.to(room.code).emit('chat-message', {
         type: 'guess',
         name: player.name,

@@ -8,20 +8,26 @@ const gameScreen = document.getElementById('game-screen');
 const gameoverOverlay = document.getElementById('gameover-overlay');
 
 // Lobby elements
-const playerNameInput = document.getElementById('player-name');
+const nameCreateInput = document.getElementById('name-create');
+const nameJoinInput = document.getElementById('name-join');
 const roomCodeInput = document.getElementById('room-code-input');
 const btnCreate = document.getElementById('btn-create');
 const btnJoin = document.getElementById('btn-join');
+
+// Lobby settings toggle
+const lobbySettingsToggle = document.getElementById('lobby-settings-toggle');
+const lobbySettingsPanel = document.getElementById('lobby-settings-panel');
+if (lobbySettingsToggle) {
+  lobbySettingsToggle.addEventListener('click', () => {
+    lobbySettingsPanel.style.display = lobbySettingsPanel.style.display === 'none' ? 'block' : 'none';
+  });
+}
 
 // Waiting elements
 const roomCodeDisplay = document.getElementById('room-code-display');
 const waitingPlayers = document.getElementById('waiting-players');
 const btnStart = document.getElementById('btn-start');
 const waitingStatus = document.getElementById('waiting-status');
-
-// Settings elements (number inputs on lobby create card)
-const settingRounds = document.getElementById('setting-rounds');
-const settingTime = document.getElementById('setting-time');
 
 // Game elements
 const gameRound = document.getElementById('game-round');
@@ -46,6 +52,9 @@ const btnPlayAgain = document.getElementById('btn-play-again');
 let currentRoom = null;
 let isDrawing = false;
 let isMyTurn = false;
+let isHost = false;
+let currentWordLength = 0;
+let hintRevealed = {};
 let lastX = 0;
 let lastY = 0;
 let currentColor = '#111827';
@@ -86,20 +95,39 @@ function addChatMessage(type, text, name) {
 // Render player list in a container
 function renderPlayers(container, players) {
   container.innerHTML = '';
+  const isWaiting = container === waitingPlayers;
   players.forEach(p => {
     const div = document.createElement('div');
     div.className = `player-item${p.isDrawing ? ' drawing' : ''}`;
+    const isKickable = isWaiting && isHost && p.id !== socket.id;
     div.innerHTML = `
       <span class="player-name">${p.isDrawing ? '🎨 ' : ''}${p.name}</span>
       <span class="player-score">${p.score}</span>
+      ${isKickable ? '<button class="kick-btn" title="Perjashto">&times;</button>' : ''}
     `;
+    const kickBtn = div.querySelector('.kick-btn');
+    if (kickBtn) {
+      kickBtn.addEventListener('click', () => {
+        socket.emit('kick-player', { playerId: p.id });
+      });
+    }
     container.appendChild(div);
   });
 }
 
 // Show word as blanks (underscores)
 function showWordBlanks(length) {
+  currentWordLength = length;
+  hintRevealed = {};
   wordDisplay.textContent = '_ '.repeat(length).trim();
+}
+
+function updateWordDisplayWithHints() {
+  let display = '';
+  for (let i = 0; i < currentWordLength; i++) {
+    display += (hintRevealed[i] !== undefined ? hintRevealed[i] : '_') + ' ';
+  }
+  wordDisplay.textContent = display.trim();
 }
 
 // Show actual word (for drawer)
@@ -118,27 +146,24 @@ function resetWordDisplay() {
 
 // Create Room
 btnCreate.addEventListener('click', () => {
-  const name = playerNameInput.value.trim();
+  const name = nameCreateInput.value.trim();
   if (!name) {
     alert('Shkruaj emrin tënd!');
     return;
   }
-  socket.emit('create-room', { name, settings: getSettings() });
+  socket.emit('create-room', {
+    name,
+    settings: {
+      rounds: parseInt(document.getElementById('set-rounds').value) || 3,
+      time: parseInt(document.getElementById('set-time').value) || 60,
+      maxPlayers: parseInt(document.getElementById('set-maxplayers').value) || 8
+    }
+  });
 });
-
-// Helper: read settings from lobby number inputs
-function getSettings() {
-  const rounds = parseInt(settingRounds?.value) || 3;
-  const time = parseInt(settingTime?.value) || 60;
-  return {
-    rounds: Math.min(Math.max(rounds, 1), 10),
-    time: Math.min(Math.max(time, 15), 180)
-  };
-}
 
 // Join Room
 btnJoin.addEventListener('click', () => {
-  const name = playerNameInput.value.trim();
+  const name = nameJoinInput.value.trim();
   const code = roomCodeInput.value.trim();
   if (!name) {
     alert('Shkruaj emrin tënd!');
@@ -152,10 +177,12 @@ btnJoin.addEventListener('click', () => {
 });
 
 // Enter key support
-playerNameInput.addEventListener('keydown', (e) => {
+nameCreateInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnCreate.click();
 });
-
+nameJoinInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') roomCodeInput.focus();
+});
 roomCodeInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') btnJoin.click();
 });
@@ -165,18 +192,20 @@ roomCodeInput.addEventListener('keydown', (e) => {
 // Room created successfully
 socket.on('room-created', (data) => {
   currentRoom = data.code;
+  isHost = true;
   roomCodeDisplay.textContent = data.code;
   renderPlayers(waitingPlayers, data.players);
-  btnStart.style.display = '';
+  document.getElementById('custom-words-section').style.display = 'block';
   showScreen(waitingScreen);
 });
 
 // Room joined successfully
 socket.on('room-joined', (data) => {
   currentRoom = data.code;
+  isHost = false;
   roomCodeDisplay.textContent = data.code;
   renderPlayers(waitingPlayers, data.players);
-  btnStart.style.display = 'none';
+  btnStart.style.display = 'none'; // only host sees start
   showScreen(waitingScreen);
 });
 
@@ -190,8 +219,25 @@ socket.on('player-joined', (data) => {
 
 // Start game button
 btnStart.addEventListener('click', () => {
-  socket.emit('start-game', { settings: getSettings() });
+  socket.emit('start-game');
 });
+
+// Custom words toggle
+const customWordsToggle = document.getElementById('custom-words-toggle');
+const customWordsPanel = document.getElementById('custom-words-panel');
+const customWordsInput = document.getElementById('custom-words-input');
+const btnSaveCustomWords = document.getElementById('btn-save-custom-words');
+
+if (customWordsToggle) {
+  customWordsToggle.addEventListener('click', () => {
+    customWordsPanel.style.display = customWordsPanel.style.display === 'none' ? 'block' : 'none';
+  });
+}
+if (btnSaveCustomWords) {
+  btnSaveCustomWords.addEventListener('click', () => {
+    socket.emit('set-custom-words', { words: customWordsInput.value });
+  });
+}
 
 // ========== SOCKET: GAME EVENTS ==========
 
@@ -201,11 +247,13 @@ socket.on('game-started', (data) => {
   renderPlayers(gamePlayers, data.players);
   resetWordDisplay();
   showScreen(gameScreen);
+  SoundFX.playStart();
 });
 
 // Your turn to draw
 socket.on('your-turn', (data) => {
   isMyTurn = true;
+  hintRevealed = {};
   drawTools.style.display = 'flex';
   chatInput.disabled = true;
   chatInput.placeholder = 'Ti po vizaton...';
@@ -234,6 +282,7 @@ socket.on('timer-update', (data) => {
     gameTimer.style.animation = 'none';
     gameTimer.offsetHeight; // trigger reflow
     gameTimer.style.background = data.timeLeft % 2 === 0 ? 'var(--danger)' : '#FF3333';
+    if (data.timeLeft > 0) SoundFX.playTick();
   } else {
     gameTimer.style.background = '';
   }
@@ -253,11 +302,56 @@ socket.on('turn-ended', (data) => {
 // Someone guessed correctly
 socket.on('correct-guess', (data) => {
   renderPlayers(gamePlayers, data.players);
+  SoundFX.playCorrect();
+
+  // Animate score change
+  const items = document.querySelectorAll('#game-players .player-item');
+  items.forEach(item => {
+    const nameSpan = item.querySelector('.player-name');
+    if (!nameSpan) return;
+    const name = nameSpan.textContent.replace('🎨 ', '').trim();
+    const scoreEl = item.querySelector('.player-score');
+    if (!scoreEl) return;
+    const gainSpan = document.createElement('span');
+    gainSpan.className = 'score-gain';
+    if (name === data.name) {
+      gainSpan.textContent = `+${data.points}`;
+    } else if (data.drawerName && name === data.drawerName) {
+      gainSpan.textContent = `+${data.drawerPoints}`;
+    } else {
+      return;
+    }
+    item.classList.add('score-flash');
+    scoreEl.appendChild(gainSpan);
+    setTimeout(() => {
+      item.classList.remove('score-flash');
+      if (gainSpan.parentNode) gainSpan.remove();
+    }, 1500);
+  });
 });
 
 // Chat message
 socket.on('chat-message', (data) => {
   addChatMessage(data.type, data.text, data.name || '');
+});
+
+// Hint revealed
+socket.on('hint', (data) => {
+  data.letters.forEach(l => { hintRevealed[l.position] = l.letter; });
+  if (!isMyTurn) updateWordDisplayWithHints();
+});
+
+// Wrong guess (own guess was incorrect)
+socket.on('wrong-guess', () => {
+  SoundFX.playWrong();
+});
+
+// Kicked from room
+socket.on('kicked', () => {
+  alert('Je perjashtuar nga dhoma.');
+  currentRoom = null;
+  isHost = false;
+  showScreen(lobbyScreen);
 });
 
 // Error message
@@ -290,9 +384,46 @@ function drawLine(x1, y1, x2, y2, color, size) {
   ctx.stroke();
 }
 
+// Flood fill (bucket tool)
+function hexToRgb(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m ? { r: parseInt(m[1],16), g: parseInt(m[2],16), b: parseInt(m[3],16) } : { r:0,g:0,b:0 };
+}
+function floodFill(startX, startY, fillHex) {
+  const w = canvas.width, h = canvas.height;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const d = imgData.data;
+  const si = (Math.floor(startY) * w + Math.floor(startX)) * 4;
+  const tR = d[si], tG = d[si+1], tB = d[si+2];
+  const fill = hexToRgb(fillHex);
+  if (tR === fill.r && tG === fill.g && tB === fill.b) return;
+  const TOL = 12;
+  const visited = new Uint8Array(w * h);
+  const stack = [{ x: Math.floor(startX), y: Math.floor(startY) }];
+  while (stack.length) {
+    const {x, y} = stack.pop();
+    if (x < 0 || x >= w || y < 0 || y >= h) continue;
+    const idx = y * w + x;
+    if (visited[idx]) continue;
+    const pi = idx * 4;
+    if (Math.abs(d[pi]-tR) > TOL || Math.abs(d[pi+1]-tG) > TOL || Math.abs(d[pi+2]-tB) > TOL) continue;
+    visited[idx] = 1;
+    d[pi] = fill.r; d[pi+1] = fill.g; d[pi+2] = fill.b; d[pi+3] = 255;
+    stack.push({x: x+1, y}, {x: x-1, y}, {x, y: y+1}, {x, y: y-1});
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
 // Mouse down — start drawing
 canvas.addEventListener('mousedown', (e) => {
   if (!isMyTurn) return;
+  if (currentTool === 'bucket') {
+    const pos = getCanvasPos(e);
+    saveSnapshot();
+    floodFill(pos.x, pos.y, currentColor);
+    socket.emit('fill', { x: pos.x, y: pos.y, color: currentColor });
+    return;
+  }
   isDrawing = true;
   const pos = getCanvasPos(e);
   lastX = pos.x;
@@ -332,6 +463,14 @@ canvas.addEventListener('mouseleave', () => {
 canvas.addEventListener('touchstart', (e) => {
   if (!isMyTurn) return;
   e.preventDefault();
+  if (currentTool === 'bucket') {
+    const touch = e.touches[0];
+    const pos = getCanvasPos(touch);
+    saveSnapshot();
+    floodFill(pos.x, pos.y, currentColor);
+    socket.emit('fill', { x: pos.x, y: pos.y, color: currentColor });
+    return;
+  }
   isDrawing = true;
   const touch = e.touches[0];
   const pos = getCanvasPos(touch);
@@ -367,6 +506,11 @@ canvas.addEventListener('touchend', () => {
 // Receive drawing from other players
 socket.on('draw', (data) => {
   drawLine(data.x1, data.y1, data.x2, data.y2, data.color, data.size);
+});
+
+// Receive fill from other players
+socket.on('fill', (data) => {
+  floodFill(data.x, data.y, data.color);
 });
 
 // Clear canvas
@@ -472,6 +616,18 @@ if (btnUndo) {
   });
 }
 
+// Save drawing button
+const btnSave = document.getElementById('btn-save');
+if (btnSave) {
+  btnSave.addEventListener('click', () => {
+    if (!isMyTurn) return;
+    const link = document.createElement('a');
+    link.download = `vizatimi-${currentRoom}-${Date.now()}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+}
+
 // Clear canvas button
 btnClearCanvas.addEventListener('click', () => {
   if (!isMyTurn) return;
@@ -498,10 +654,33 @@ chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendGuess();
 });
 
+// ========== ROUND SUMMARY ==========
+const roundSummaryOverlay = document.getElementById('round-summary-overlay');
+const roundSummaryContent = document.getElementById('round-summary-content');
+
+socket.on('round-summary', (data) => {
+  let guesserHtml = '';
+  if (data.guessers.length > 0) {
+    guesserHtml = `<p>E qelluan: <strong>${data.guessers.join(', ')}</strong></p>
+                   <p>Vizatuesi fitoi: +${data.drawerGain} pike</p>`;
+  } else {
+    guesserHtml = `<p>Askush nuk e qelloi fjalen.</p>`;
+  }
+  roundSummaryContent.innerHTML = `
+    <h3>Raundi Perfundoi!</h3>
+    <p>Fjala: <strong>${data.word}</strong></p>
+    <p>Vizatoi: ${data.drawer}</p>
+    ${guesserHtml}
+  `;
+  roundSummaryOverlay.classList.remove('hidden');
+  setTimeout(() => { roundSummaryOverlay.classList.add('hidden'); }, 3000);
+});
+
 // ========== GAME OVER ==========
 
 socket.on('game-over', (data) => {
   gameoverOverlay.classList.remove('hidden');
+  SoundFX.playGameOver();
 
   rankingsList.innerHTML = '';
   data.rankings.forEach(r => {
@@ -521,6 +700,44 @@ btnPlayAgain.addEventListener('click', () => {
   gameoverOverlay.classList.add('hidden');
   showScreen(waitingScreen);
 });
+
+// ========== SOUND EFFECTS ==========
+const SoundFX = {
+  ctx: null,
+  getCtx() {
+    if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    return this.ctx;
+  },
+  tone(freq, type, duration, volume, startDelay) {
+    try {
+      const ctx = this.getCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = freq; osc.type = type;
+      const t = ctx.currentTime + (startDelay || 0);
+      gain.gain.setValueAtTime(volume || 0.3, t);
+      gain.gain.exponentialRampToValueAtTime(0.01, t + duration);
+      osc.start(t); osc.stop(t + duration);
+    } catch(e) { /* ignore audio errors */ }
+  },
+  playTick()    { this.tone(800, 'sine', 0.08, 0.15); },
+  playCorrect() {
+    [523.25, 659.25, 783.99].forEach((f, i) => this.tone(f, 'sine', 0.35, 0.25, i * 0.12));
+  },
+  playWrong()   { this.tone(200, 'sawtooth', 0.25, 0.15); },
+  playStart() {
+    [261.63, 329.63, 392.0, 523.25].forEach((f, i) => this.tone(f, 'sine', 0.4, 0.25, i * 0.15));
+  },
+  playGameOver() {
+    [523.25, 466.16, 392.0, 349.23].forEach((f, i) => this.tone(f, 'triangle', 0.5, 0.25, i * 0.2));
+  }
+};
+
+function initAudio() { SoundFX.getCtx(); }
+btnCreate.addEventListener('click', initAudio, { once: true });
+btnJoin.addEventListener('click', initAudio, { once: true });
 
 // ========== INIT ==========
 
