@@ -101,31 +101,81 @@ function clearRoomTimer(room) {
 
 // ========== GAME LOGIC ==========
 
-// Start a new turn
+// Helper: pick N unique random words from the pool
+function pickRandomWords(room, count) {
+  let wordPool = [...words];
+  if (room.customWords && room.customWords.length > 0) {
+    wordPool = wordPool.concat(room.customWords);
+  }
+  const picked = [];
+  const used = new Set();
+  for (let i = 0; i < count && used.size < wordPool.length; i++) {
+    let w;
+    do { w = wordPool[Math.floor(Math.random() * wordPool.length)]; }
+    while (used.has(w));
+    used.add(w);
+    picked.push(w);
+  }
+  return picked;
+}
+
+// Start a new turn — Phase 1: let drawer pick a word
 function startTurn(roomCode) {
   const room = rooms[roomCode];
   if (!room || room.players.length < 2) return;
 
   clearRoomTimer(room);
 
-  // Pick word and reset turn state
-  let wordPool = [...words];
-  if (room.customWords && room.customWords.length > 0) {
-    wordPool = wordPool.concat(room.customWords);
-  }
-  room.currentWord = wordPool[Math.floor(Math.random() * wordPool.length)];
+  // Pick 3 random words for the drawer to choose from
+  const wordOptions = pickRandomWords(room, 3);
+  room._wordOptions = wordOptions;
+  room.currentWord = null;
   room.guessedPlayers = [];
   room.hintRevealed = [];
   room._drawerEarnedThisTurn = 0;
+
+  const drawer = getCurrentDrawer(room);
+  if (!drawer) return;
+
+  // Tell the drawer to pick a word
+  io.to(drawer.id).emit('your-turn', {
+    words: wordOptions,
+    round: room.currentRound,
+    maxRounds: room.settings ? room.settings.rounds : MAX_ROUNDS
+  });
+
+  // Tell everyone else the drawer is choosing
+  io.to(roomCode).emit('turn-started', {
+    drawer: drawer.name,
+    wordLength: 0, // 0 means "choosing"
+    players: getPlayerList(room),
+    round: room.currentRound,
+    maxRounds: room.settings ? room.settings.rounds : MAX_ROUNDS
+  });
+
+  io.to(roomCode).emit('chat-message', {
+    type: 'system',
+    text: `${drawer.name} po zgjedh nje fjale...`
+  });
+
+  io.to(roomCode).emit('clear-canvas');
+}
+
+// Phase 2: drawer picked a word — start the actual turn
+function beginTurnWithWord(roomCode, chosenWord) {
+  const room = rooms[roomCode];
+  if (!room || room.players.length < 2) return;
+
+  room.currentWord = chosenWord;
   room.timeLeft = room.settings ? room.settings.time : ROUND_TIME;
 
-  // Schedule progressive hint reveals (1 letter at a time)
+  // Schedule progressive hint reveals
   clearTimeout(room.hintTimer);
   clearInterval(room.hintTimer);
 
   const wordLen = room.currentWord.length;
-  const lettersToReveal = Math.floor(wordLen / 2) + 1; // more than half
-  const hintInterval = 4; // seconds between each hint reveal
+  const lettersToReveal = Math.floor(wordLen / 2) + 1;
+  const hintInterval = 4;
 
   room.hintTimer = setTimeout(() => {
     if (!rooms[roomCode] || !rooms[roomCode].gameStarted) return;
@@ -166,14 +216,12 @@ function startTurn(roomCode) {
   const drawer = getCurrentDrawer(room);
   if (!drawer) return;
 
-  // Tell the drawer the word
-  io.to(drawer.id).emit('your-turn', {
-    word: room.currentWord,
-    round: room.currentRound,
-    maxRounds: room.settings ? room.settings.rounds : MAX_ROUNDS
+  // Confirm the word to the drawer
+  io.to(drawer.id).emit('word-confirmed', {
+    word: room.currentWord
   });
 
-  // Tell everyone else a turn started
+  // Tell everyone else the turn has started
   io.to(roomCode).emit('turn-started', {
     drawer: drawer.name,
     wordLength: room.currentWord.length,
@@ -182,14 +230,10 @@ function startTurn(roomCode) {
     maxRounds: room.settings ? room.settings.rounds : MAX_ROUNDS
   });
 
-  // Send system message
   io.to(roomCode).emit('chat-message', {
     type: 'system',
-    text: `Radha e ${drawer.name} me vizatu.`
+    text: `${drawer.name} zgjodhi fjalen! Fillo te vizatosh!`
   });
-
-  // Clear the canvas for everyone
-  io.to(roomCode).emit('clear-canvas');
 
   // Start countdown timer
   room.timer = setInterval(() => {
@@ -481,6 +525,33 @@ io.on('connection', (socket) => {
     });
   });
 
+  // --- PLAY AGAIN (host sends everyone back to lobby) ---
+  socket.on('play-again', () => {
+    const room = getRoomByPlayer(socket.id);
+    if (!room) return;
+    if (room.host !== socket.id) return;
+    io.to(room.code).emit('back-to-lobby');
+    io.to(room.code).emit('chat-message', {
+      type: 'system',
+      text: 'Host-i e nisi nje loje te re. Duke pritur lojtare...'
+    });
+  });
+
+  // --- END GAME (host only) ---
+  socket.on('end-game', () => {
+    const room = getRoomByPlayer(socket.id);
+    if (!room || !room.gameStarted) return;
+    if (room.host !== socket.id) {
+      socket.emit('error-message', 'Vetem hosti mund ta perfundoje lojen.');
+      return;
+    }
+    io.to(room.code).emit('chat-message', {
+      type: 'system',
+      text: 'Host-i e perfundoi lojen.'
+    });
+    endGame(room.code);
+  });
+
   // --- START GAME ---
   socket.on('start-game', () => {
     const room = getRoomByPlayer(socket.id);
@@ -512,6 +583,21 @@ io.on('connection', (socket) => {
     });
 
     startTurn(room.code);
+  });
+
+  // --- PICK WORD (drawer chooses from 3 options) ---
+  socket.on('pick-word', (data) => {
+    const room = getRoomByPlayer(socket.id);
+    if (!room || !room.gameStarted) return;
+
+    const drawer = getCurrentDrawer(room);
+    if (!drawer || drawer.id !== socket.id) return;
+
+    const chosen = data.word;
+    if (!chosen || !room._wordOptions || !room._wordOptions.includes(chosen)) return;
+
+    room._wordOptions = null;
+    beginTurnWithWord(room.code, chosen);
   });
 
   // --- DRAWING ---

@@ -138,7 +138,11 @@ function showWord(word) {
 
 // Reset word display
 function resetWordDisplay() {
-  wordDisplay.textContent = '';
+  wordDisplay.innerHTML = '';
+  wordDisplay.style.display = '';
+  wordDisplay.style.gap = '';
+  wordDisplay.style.flexWrap = '';
+  wordDisplay.style.justifyContent = '';
   wordDisplay.style.color = 'var(--secondary)';
 }
 
@@ -222,6 +226,14 @@ btnStart.addEventListener('click', () => {
   socket.emit('start-game');
 });
 
+// End game button (host only)
+const btnEndGame = document.getElementById('btn-end-game');
+btnEndGame.addEventListener('click', () => {
+  if (confirm('Je i sigurt qe do ta perfundosh lojen?')) {
+    socket.emit('end-game');
+  }
+});
+
 // Custom words toggle
 const customWordsToggle = document.getElementById('custom-words-toggle');
 const customWordsPanel = document.getElementById('custom-words-panel');
@@ -248,29 +260,85 @@ socket.on('game-started', (data) => {
   resetWordDisplay();
   showScreen(gameScreen);
   SoundFX.playStart();
+  document.getElementById('btn-end-game').style.display = isHost ? 'block' : 'none';
 });
 
-// Your turn to draw
+// Your turn to draw — pick a word
 socket.on('your-turn', (data) => {
   isMyTurn = true;
   hintRevealed = {};
-  drawTools.style.display = 'flex';
+  drawTools.style.display = 'none';
   chatInput.disabled = true;
+  chatInput.placeholder = 'Zgjidh nje fjale...';
+  gameRound.textContent = 'Raundi: ' + data.round + ' / ' + data.maxRounds;
+
+  // Show word choice buttons
+  wordDisplay.innerHTML = '';
+  wordDisplay.style.display = 'flex';
+  wordDisplay.style.gap = '10px';
+  wordDisplay.style.flexWrap = 'wrap';
+  wordDisplay.style.justifyContent = 'center';
+  data.words.forEach(w => {
+    const btn = document.createElement('button');
+    btn.className = 'word-choice-btn';
+    btn.textContent = w;
+    btn.addEventListener('click', () => {
+      socket.emit('pick-word', { word: w });
+      // Show chosen word while waiting for confirmation
+      wordDisplay.innerHTML = '';
+      wordDisplay.style.display = '';
+      wordDisplay.style.gap = '';
+      wordDisplay.style.flexWrap = '';
+      wordDisplay.style.justifyContent = '';
+      wordDisplay.textContent = 'Duke pritur...';
+      wordDisplay.style.color = 'var(--text-muted)';
+    });
+    wordDisplay.appendChild(btn);
+  });
+});
+
+// Word confirmed — start drawing
+socket.on('word-confirmed', (data) => {
+  drawTools.style.display = 'flex';
   chatInput.placeholder = 'Ti po vizaton...';
   showWord(data.word);
-  gameRound.textContent = 'Raundi: ' + data.round + ' / ' + data.maxRounds;
 });
+
+// Round banner helper
+let lastDisplayedRound = 0;
+function showRoundBanner(round, maxRounds) {
+  if (round === lastDisplayedRound) return;
+  lastDisplayedRound = round;
+  const existing = document.querySelector('.round-banner');
+  if (existing) existing.remove();
+  const banner = document.createElement('div');
+  banner.className = 'round-banner';
+  banner.textContent = `Raundi ${round} / ${maxRounds}`;
+  document.body.appendChild(banner);
+  setTimeout(() => {
+    banner.classList.add('out');
+    setTimeout(() => banner.remove(), 500);
+  }, 2000);
+}
 
 // Someone else's turn started
 socket.on('turn-started', (data) => {
-  if (!isMyTurn) {
-    drawTools.style.display = 'none';
-    chatInput.disabled = false;
-    chatInput.placeholder = 'Shkruaj përgjigjen...';
-    showWordBlanks(data.wordLength);
+  if (data.wordLength === 0) {
+    if (!isMyTurn) {
+      wordDisplay.textContent = 'Duke zgjedhur fjalen...';
+      wordDisplay.style.color = 'var(--text-muted)';
+    }
+  } else {
+    if (!isMyTurn) {
+      drawTools.style.display = 'none';
+      chatInput.disabled = false;
+      chatInput.placeholder = 'Shkruaj përgjigjen...';
+      showWordBlanks(data.wordLength);
+    }
   }
   gameRound.textContent = 'Raundi: ' + data.round + ' / ' + data.maxRounds;
   renderPlayers(gamePlayers, data.players);
+  showRoundBanner(data.round, data.maxRounds);
 });
 
 // Timer update
@@ -303,6 +371,14 @@ socket.on('turn-ended', (data) => {
 socket.on('correct-guess', (data) => {
   renderPlayers(gamePlayers, data.players);
   SoundFX.playCorrect();
+
+  // Screen flash effect
+  const wrapper = document.querySelector('.canvas-wrapper');
+  if (wrapper) {
+    wrapper.classList.remove('canvas-flash');
+    void wrapper.offsetWidth;
+    wrapper.classList.add('canvas-flash');
+  }
 
   // Animate score change
   const items = document.querySelectorAll('#game-players .player-item');
@@ -659,18 +735,17 @@ const roundSummaryOverlay = document.getElementById('round-summary-overlay');
 const roundSummaryContent = document.getElementById('round-summary-content');
 
 socket.on('round-summary', (data) => {
-  let guesserHtml = '';
-  if (data.guessers.length > 0) {
-    guesserHtml = `<p>E qelluan: <strong>${data.guessers.join(', ')}</strong></p>
-                   <p>Vizatuesi fitoi: +${data.drawerGain} pike</p>`;
-  } else {
-    guesserHtml = `<p>Askush nuk e qelloi fjalen.</p>`;
-  }
+  const guessed = data.guessers.length > 0;
   roundSummaryContent.innerHTML = `
-    <h3>Raundi Perfundoi!</h3>
-    <p>Fjala: <strong>${data.word}</strong></p>
-    <p>Vizatoi: ${data.drawer}</p>
-    ${guesserHtml}
+    <h3>Raundi Perfundoi</h3>
+    <p>Fjala ishte <strong>${data.word}</strong></p>
+    <p>Vizatoi <strong style="color:#F59E0B">${data.drawer}</strong>
+      ${guessed
+        ? `<span style="color:var(--success)"> +${data.drawerGain} pike</span>`
+        : ''}</p>
+    ${guessed
+      ? `<p style="font-size:0.8rem;color:var(--text-muted)">Qelluan: ${data.guessers.join(', ')}</p>`
+      : '<p style="font-size:0.8rem;color:var(--danger)">Askush nuk e qelloi</p>'}
   `;
   roundSummaryOverlay.classList.remove('hidden');
   setTimeout(() => { roundSummaryOverlay.classList.add('hidden'); }, 3000);
@@ -693,11 +768,38 @@ socket.on('game-over', (data) => {
     `;
     rankingsList.appendChild(div);
   });
+
+  // Only host can trigger play-again; others wait
+  if (isHost) {
+    btnPlayAgain.style.display = '';
+    btnPlayAgain.textContent = 'Luaj Përsëri';
+  } else {
+    btnPlayAgain.textContent = 'Duke pritur hostin...';
+    btnPlayAgain.style.opacity = '0.5';
+    btnPlayAgain.style.pointerEvents = 'none';
+  }
 });
 
-// Play again
+// Play again (host only)
 btnPlayAgain.addEventListener('click', () => {
+  if (!isHost) return;
+  socket.emit('play-again');
+});
+
+// Back to lobby (sent by server to all players)
+socket.on('back-to-lobby', () => {
   gameoverOverlay.classList.add('hidden');
+  btnPlayAgain.style.opacity = '';
+  btnPlayAgain.style.pointerEvents = '';
+  isMyTurn = false;
+  drawTools.style.display = 'none';
+  chatInput.disabled = false;
+  chatInput.placeholder = 'Shkruaj përgjigjen...';
+  resetWordDisplay();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  undoStack = [];
   showScreen(waitingScreen);
 });
 
