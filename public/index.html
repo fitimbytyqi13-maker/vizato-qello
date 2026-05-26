@@ -2,7 +2,7 @@
 <html lang="sq">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Vizato & Qëllo</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -72,8 +72,10 @@
             <input
               type="text"
               id="room-code-input"
-              placeholder="Kodi 6-shifror"
-              maxlength="6"
+              placeholder="Kodi 4-shifror"
+              maxlength="4"
+              inputmode="numeric"
+              pattern="[0-9]*"
               autocomplete="off"
             >
             <button id="btn-join" class="btn btn-secondary">Kyçu</button>

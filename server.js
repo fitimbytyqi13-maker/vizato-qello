@@ -1,7 +1,6 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { v4: uuidv4 } = require('uuid');
 
 // ========== APP SETUP ==========
 const app = express();
@@ -23,21 +22,47 @@ const HINT_DELAY = 10;        // seconds before first hint
 
 // ========== WORD LIST (Albanian) ==========
 const words = [
-  'shtepi', 'diell', 'lule', 'det', 'mal',
-  'qen', 'mace', 'liber', 'shkolla', 'top',
-  'makine', 'avion', 'anija', 'yll', 'hena',
+  // Kosovar / Gheg everyday words
+  'shpi', 'diell', 'lule', 'det', 'mal',
+  'qen', 'mace', 'liber', 'shkoll', 'top',
+  'makine', 'aeroplan', 'anije', 'yll', 'hane',
   'shi', 'bore', 'zjarr', 'uje', 'dore',
-  'sy', 'zemer', 'peshk', 'zog', 'rruga',
-  'ura', 'kulla', 'kali', 'molla', 'dardha',
-  'rrushi', 'buka', 'djathi', 'kafe', 'caj',
-  'akullore', 'torta', 'pica', 'burek', 'flija',
-  'prishtina', 'mitrovica', 'peja', 'gjakova', 'prizreni',
-  'xhamia', 'kisha', 'pazari', 'stadiumi', 'autobusi',
-  'telefoni', 'kompjuteri', 'tavolina', 'karrigia', 'dritarja',
-  'dera', 'cati', 'ballkoni', 'oborri', 'kopshti',
-  'mjalti', 'qumeshti', 'veza', 'mishi', 'patatja',
-  'domatja', 'specat', 'sallata', 'supa', 'pasticja',
-  'trapi', 'drini', 'sitnica', 'sharri', 'bjeshka'
+  'sy', 'zemer', 'peshk', 'zog', 'rruge',
+  'ure', 'kulle', 'kal', 'molle', 'dardhe',
+  'rrush', 'buke', 'djath', 'kafe', 'caj',
+  'akullore', 'torte', 'pice', 'burek', 'fli',
+  // Kosovar cities & landmarks
+  'prishtine', 'mitrovice', 'peje', 'gjakove', 'prizren',
+  'ferizaj', 'gjilan', 'vushtrri', 'therande', 'rahovec',
+  'xhami', 'kishe', 'pazar', 'stadium', 'autobus',
+  // Modern objects
+  'telefon', 'kompjuter', 'tavoline', 'karrige', 'dritare',
+  'der', 'cati', 'ballkon', 'oborr', 'kopsht',
+  // Food (Kosovar cuisine)
+  'mjalt', 'qumsht', 've', 'mish', 'patate',
+  'domate', 'speca', 'sallate', 'supe', 'pastic',
+  'qebap', 'plleskavice', 'suxhuk', 'petlla', 'leqenik',
+  'pite', 'bakllave', 'halla', 'qaj', 'kos',
+  // Nature & geography
+  'bjeshke', 'fushe', 'lum', 'gur', 'dru',
+  'lis', 'pylle', 'bar', 'kodre', 'liqe',
+  'shpell', 'bredh', 'ujvar', 'gazivode', 'brezovice',
+  // Body parts
+  'krye', 'kamb', 'gisht', 'vesh', 'hun',
+  'flok', 'dhemb', 'gju', 'boll', 'qafe',
+  // Actions
+  'vrap', 'kercim', 'valle', 'kembe', 'loje',
+  'pushim', 'gjum', 'kange', 'muzike', 'film',
+  // Gheg-specific words
+  'nuse', 'dhenderr', 'cun', 'vajze', 'plak',
+  'tavhan', 'shkall', 'oxhak', 'bunar', 'mahall',
+  'carshije', 'hamam', 'kulle', 'bajrak', 'kulle',
+  'dasem', 'flamur', 'shqipe', 'dashni', 'vllau',
+  // More everyday items
+  'filxhan', 'ibrik', 'tepsi', 'tenxhere', 'lug',
+  'pirun', 'thike', 'pjat', 'got', 'sahan',
+  'cante', 'or', 'unaze', 'gjerdan', 'shall',
+  'tirq', 'plis', 'qeleshe', 'xhybe', 'opal'
 ];
 
 // ========== ROOMS STORAGE ==========
@@ -51,8 +76,9 @@ function getRandomWord() {
 }
 
 // Generate a short room code
+// Generate a simple 4-digit room code
 function generateRoomCode() {
-  return uuidv4().slice(0, 6).toUpperCase();
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 // Get a room by player socket ID
@@ -71,6 +97,45 @@ function getPlayer(room, socketId) {
   return room.players.find(p => p.id === socketId);
 }
 
+// Player color palette
+const PLAYER_COLORS = [
+  '#EF4444','#F97316','#EAB308','#22C55E','#3B82F6',
+  '#6366F1','#A855F7','#EC4899','#14B8A6','#F43F5E',
+  '#8B5CF6','#06B6D4','#84CC16','#F59E0B','#0EA5E9','#D946EF'
+];
+let colorIndex = 0;
+
+function assignPlayerColor() {
+  const c = PLAYER_COLORS[colorIndex % PLAYER_COLORS.length];
+  colorIndex++;
+  return c;
+}
+
+// Check if guess is close to the word
+function isCloseGuess(guess, word) {
+  if (guess.length < 2 || word.length < 2) return false;
+  // Shared prefix of 3+ chars
+  const minLen = Math.min(guess.length, word.length);
+  let matchCount = 0;
+  for (let i = 0; i < minLen; i++) {
+    if (guess[i] === word[i]) matchCount++;
+    else break;
+  }
+  if (matchCount >= 3 && guess.length >= word.length - 2) return true;
+  // One is substring of the other
+  if (word.includes(guess) && guess.length >= 3) return true;
+  if (guess.includes(word) && word.length >= 3) return true;
+  // Edit distance check (simple cheap approach: diff in length + char mismatch)
+  const lenDiff = Math.abs(guess.length - word.length);
+  let mismatches = 0;
+  for (let i = 0; i < minLen; i++) {
+    if (guess[i] !== word[i]) mismatches++;
+  }
+  if (lenDiff <= 1 && mismatches <= 1) return true;
+  if (lenDiff <= 2 && mismatches <= 2 && guess.length >= 3) return true;
+  return false;
+}
+
 // Get current drawer
 function getCurrentDrawer(room) {
   return room.players[room.drawerIndex] || null;
@@ -82,6 +147,7 @@ function getPlayerList(room) {
     id: p.id,
     name: p.name,
     score: p.score,
+    color: p.color,
     isDrawing: room.players[room.drawerIndex]?.id === p.id
   }));
 }
@@ -374,7 +440,8 @@ io.on('connection', (socket) => {
       players: [{
         id: socket.id,
         name: name,
-        score: 0
+        score: 0,
+        color: assignPlayerColor()
       }],
       gameStarted: false,
       customWords: [],
@@ -401,7 +468,7 @@ io.on('connection', (socket) => {
   // --- JOIN ROOM ---
   socket.on('join-room', (data) => {
     const name = data.name?.trim();
-    const code = data.code?.trim().toUpperCase();
+    const code = data.code?.trim();
 
     if (!name) {
       socket.emit('error-message', 'Shkruaj emrin tënd.');
@@ -426,7 +493,8 @@ io.on('connection', (socket) => {
     room.players.push({
       id: socket.id,
       name: name,
-      score: 0
+      score: 0,
+      color: assignPlayerColor()
     });
 
     socket.join(code);
@@ -686,12 +754,22 @@ io.on('connection', (socket) => {
       if (room.guessedPlayers.length >= guessers.length) {
         endTurn(room.code, true);
       }
+    } else if (isCloseGuess(guess, room.currentWord.toLowerCase())) {
+      // Close guess — give a hint
+      socket.emit('close-guess');
+      io.to(room.code).emit('chat-message', {
+        type: 'close',
+        name: player.name,
+        color: player.color,
+        text: guess
+      });
     } else {
       // Wrong guess — show as normal chat
       socket.emit('wrong-guess');
       io.to(room.code).emit('chat-message', {
         type: 'guess',
         name: player.name,
+        color: player.color,
         text: guess
       });
     }

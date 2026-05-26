@@ -78,12 +78,12 @@ function showScreen(screen) {
 }
 
 // Add chat message to the chat box
-function addChatMessage(type, text, name) {
+function addChatMessage(type, text, name, color) {
   const div = document.createElement('div');
   div.className = `chat-msg ${type}`;
 
-  if (type === 'guess' && name) {
-    div.innerHTML = `<span class="msg-name">${name}:</span> ${text}`;
+  if ((type === 'guess' || type === 'close') && name) {
+    div.innerHTML = `<span class="msg-name" style="color:${color || 'var(--primary)'}">${name}:</span> ${text}`;
   } else {
     div.textContent = text;
   }
@@ -99,9 +99,10 @@ function renderPlayers(container, players) {
   players.forEach(p => {
     const div = document.createElement('div');
     div.className = `player-item${p.isDrawing ? ' drawing' : ''}`;
+    div.style.borderLeftColor = p.color || 'transparent';
     const isKickable = isWaiting && isHost && p.id !== socket.id;
     div.innerHTML = `
-      <span class="player-name">${p.isDrawing ? '🎨 ' : ''}${p.name}</span>
+      <span class="player-name" style="color:${p.color || 'var(--text-light)'}">${p.isDrawing ? '🎨 ' : ''}${p.name}</span>
       <span class="player-score">${p.score}</span>
       ${isKickable ? '<button class="kick-btn" title="Perjashto">&times;</button>' : ''}
     `;
@@ -408,13 +409,19 @@ socket.on('correct-guess', (data) => {
 
 // Chat message
 socket.on('chat-message', (data) => {
-  addChatMessage(data.type, data.text, data.name || '');
+  addChatMessage(data.type, data.text, data.name || '', data.color || '');
 });
 
 // Hint revealed
 socket.on('hint', (data) => {
   data.letters.forEach(l => { hintRevealed[l.position] = l.letter; });
   if (!isMyTurn) updateWordDisplayWithHints();
+});
+
+// Close guess (almost correct)
+socket.on('close-guess', () => {
+  SoundFX.tone(440, 'sine', 0.15, 0.2);
+  SoundFX.tone(554.37, 'sine', 0.15, 0.2, 0.1);
 });
 
 // Wrong guess (own guess was incorrect)
@@ -448,16 +455,38 @@ function getCanvasPos(e) {
   };
 }
 
-// Draw a line segment
+// Smooth drawing — uses midpoints + quadratic curves
+let smoothMidX = null, smoothMidY = null;
+
 function drawLine(x1, y1, x2, y2, color, size) {
-  ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = size;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.stroke();
+  ctx.lineWidth = size;
+  ctx.strokeStyle = color;
+
+  const midX = (x1 + x2) / 2;
+  const midY = (y1 + y2) / 2;
+
+  if (smoothMidX === null) {
+    // First point of a stroke
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(midX, midY);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(smoothMidX, smoothMidY);
+    ctx.quadraticCurveTo(x1, y1, midX, midY);
+    ctx.stroke();
+  }
+
+  smoothMidX = midX;
+  smoothMidY = midY;
+}
+
+function resetSmoothing(x, y) {
+  smoothMidX = x;
+  smoothMidY = y;
 }
 
 // Flood fill (bucket tool)
@@ -504,6 +533,7 @@ canvas.addEventListener('mousedown', (e) => {
   const pos = getCanvasPos(e);
   lastX = pos.x;
   lastY = pos.y;
+  resetSmoothing(pos.x, pos.y);
 });
 
 // Mouse move — draw
@@ -552,6 +582,7 @@ canvas.addEventListener('touchstart', (e) => {
   const pos = getCanvasPos(touch);
   lastX = pos.x;
   lastY = pos.y;
+  resetSmoothing(pos.x, pos.y);
 });
 
 canvas.addEventListener('touchmove', (e) => {
@@ -581,6 +612,12 @@ canvas.addEventListener('touchend', () => {
 
 // Receive drawing from other players
 socket.on('draw', (data) => {
+  // Auto-reset smoothing if this is a new stroke (far from previous endpoint)
+  if (smoothMidX !== null) {
+    const dx = data.x1 - smoothMidX;
+    const dy = data.y1 - smoothMidY;
+    if (dx * dx + dy * dy > 100) resetSmoothing(data.x1, data.y1);
+  }
   drawLine(data.x1, data.y1, data.x2, data.y2, data.color, data.size);
 });
 
@@ -592,6 +629,8 @@ socket.on('fill', (data) => {
 // Clear canvas
 socket.on('clear-canvas', () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  smoothMidX = null;
+  smoothMidY = null;
 });
 
 // ========== DRAWING TOOLS ==========

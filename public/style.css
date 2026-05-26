@@ -28,6 +28,7 @@ body {
   background: radial-gradient(ellipse at 30% 20%, #0F1A14 0%, #0B0F0F 50%, #080B09 100%);
   color: var(--text-light);
   min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
 }
 
@@ -36,6 +37,7 @@ body {
   display: none;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
 }
 
 .screen.active {
@@ -235,7 +237,6 @@ body {
 
 .join-row input {
   flex: 1;
-  text-transform: uppercase;
   margin-bottom: 0;
 }
 
@@ -385,6 +386,7 @@ body {
   display: flex;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
   gap: 0;
 }
 
@@ -495,11 +497,15 @@ body {
 #game-canvas {
   cursor: crosshair;
   display: block;
-  width: 100%;
-  height: 100%;
-  max-width: 1000px;
-  max-height: 650px;
-  object-fit: contain;
+  max-width: 100%;
+  max-height: calc(100vh - 200px);
+  max-height: calc(100dvh - 200px);
+  height: auto;
+  touch-action: none;
+}
+
+.draw-tools {
+  touch-action: manipulation;
 }
 
 /* ========== DRAWING TOOLS ========== */
@@ -685,6 +691,26 @@ body {
   border-left-color: var(--success);
 }
 
+.chat-msg.close {
+  background: rgba(245, 158, 11, 0.12);
+  border-left-color: var(--accent);
+}
+.chat-msg.close .msg-name {
+  font-weight: 700;
+}
+.chat-msg.close::after {
+  content: 'Afër!';
+  display: inline-block;
+  margin-left: 8px;
+  background: var(--accent);
+  color: var(--bg-dark);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  animation: popIn 0.25s ease-out;
+}
+
 .chat-input-row {
   display: flex;
   gap: 6px;
@@ -849,8 +875,24 @@ body {
 
 /* ========== RESPONSIVE: MOBILE ========== */
 @media (max-width: 768px) {
+  body {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .screen {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  #lobby-screen.active,
+  #waiting-screen.active {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .game-layout {
     flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
   }
 
   /* Top bar: round + timer + compact player row */
@@ -911,7 +953,9 @@ body {
   }
   #game-canvas {
     max-width: 100%;
-    max-height: 100%;
+    max-height: none;
+    width: 100%;
+    height: auto;
   }
   .word-display {
     font-size: 1.2rem;
